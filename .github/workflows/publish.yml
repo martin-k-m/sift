@@ -1,0 +1,60 @@
+name: Publish to PyPI
+
+# Publishing happens from a tag, not from a laptop. A release built by CI is
+# built from exactly what is in the repository at that tag, which is the thing
+# a reader can check; one uploaded by hand is built from whatever happened to
+# be in that working tree.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The tests gate the upload. PyPI does not allow a version to be replaced
+      # once it exists, so a broken release is permanent and the only place to
+      # catch it is before the upload rather than after.
+      - run: pip install --upgrade build twine pytest
+      - run: pytest -q
+      - run: python -m build
+
+      # Catches a malformed README or missing metadata, which PyPI rejects at
+      # the end of the upload rather than the start.
+      - run: python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+
+    # Trusted publishing: PyPI accepts a short-lived OIDC token minted for this
+    # workflow instead of a long-lived API token kept in a secret. There is no
+    # credential in this repository to leak or rotate as a result.
+    #
+    # It needs a publisher registered on PyPI for this repo, workflow filename
+    # and environment name. Without one the upload fails with an auth error
+    # rather than anything that names the real cause.
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
