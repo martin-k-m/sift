@@ -96,30 +96,30 @@ def test_limit_zero_is_empty():
 
 # ── aggregation ─────────────────────────────────────────────────────────────
 def test_sum_and_avg():
-    assert list(run(rows(), Query(aggregate=parse_aggregate("sum(price)")))) == [
+    assert list(run(rows(), Query(aggregates=[parse_aggregate("sum(price)")]))) == [
         {"sum(price)": 517.0}
     ]
-    assert list(run(rows(), Query(aggregate=parse_aggregate("count()")))) == [{"count(*)": 4}]
+    assert list(run(rows(), Query(aggregates=[parse_aggregate("count()")]))) == [{"count(*)": 4}]
 
 
 def test_aggregate_skips_blanks_and_text():
     data = [{"v": "10"}, {"v": ""}, {"v": "n/a"}, {"v": "20"}]
-    assert list(run(data, Query(aggregate=parse_aggregate("avg(v)")))) == [{"avg(v)": 15.0}]
+    assert list(run(data, Query(aggregates=[parse_aggregate("avg(v)")]))) == [{"avg(v)": 15.0}]
 
 
 def test_group_by():
-    out = list(run(rows(), Query(aggregate=parse_aggregate("sum(price)"), group_by="category")))
+    out = list(run(rows(), Query(aggregates=[parse_aggregate("sum(price)")], group_by=["category"])))
     assert {r["category"]: r["sum(price)"] for r in out} == {"tools": 260.0, "outdoor": 257.0}
 
 
 def test_aggregate_applies_after_filtering():
-    q = Query(where=[parse_condition("price < 100")], aggregate=parse_aggregate("count()"))
+    q = Query(where=[parse_condition("price < 100")], aggregates=[parse_aggregate("count()")])
     assert list(run(rows(), q)) == [{"count(*)": 2}]
 
 
 def test_bad_aggregate_is_explained():
     with pytest.raises(QueryError, match="unknown function"):
-        parse_aggregate("median(price)")
+        parse_aggregate("stddev(price)")
     with pytest.raises(QueryError, match=r"sum\(price\)"):
         parse_aggregate("not a call")
 
@@ -180,3 +180,80 @@ def test_cli_rejects_group_by_without_agg(tmp_path, capsys):
 def test_cli_missing_file_is_a_message_not_a_stack(capsys):
     assert main(["definitely-not-here.csv"]) == 1
     assert "definitely-not-here.csv" in capsys.readouterr().err
+
+
+# --- percentiles, median, distinct, and several aggregates at once -----------
+
+
+def test_percentile_matches_the_common_definition():
+    # The linear-interpolation percentile numpy, pandas and Excel all default
+    # to. These values are what those tools return for the same input, which is
+    # the whole reason for choosing it.
+    data = [{"v": v} for v in (10, 20, 30, 40)]
+    assert list(run(data, Query(aggregates=[parse_aggregate("p95(v)")]))) == [
+        {"p95(v)": 38.5}
+    ]
+
+    assert list(run(data, Query(aggregates=[parse_aggregate("p0(v)")]))) == [{"p0(v)": 10.0}]
+    assert list(run(data, Query(aggregates=[parse_aggregate("p100(v)")]))) == [{"p100(v)": 40.0}]
+
+
+def test_median_is_p50():
+    even = [{"v": v} for v in (10, 20, 30, 40)]
+    assert list(run(even, Query(aggregates=[parse_aggregate("median(v)")]))) == [
+        {"median(v)": 25.0}
+    ]
+    odd = [{"v": v} for v in (10, 20, 30)]
+    assert list(run(odd, Query(aggregates=[parse_aggregate("median(v)")]))) == [
+        {"median(v)": 20.0}
+    ]
+
+
+def test_percentile_of_nothing_is_none():
+    empty = [{"v": ""}, {"v": "text"}]
+    assert list(run(empty, Query(aggregates=[parse_aggregate("p95(v)")]))) == [{"p95(v)": None}]
+
+
+def test_distinct_counts_spellings_not_values():
+    # "1" and "1.0" are two entries in the file. Collapsing them would be a
+    # claim about the data that sift is not in a position to make.
+    data = [{"v": "1"}, {"v": "1.0"}, {"v": "1"}]
+    assert list(run(data, Query(aggregates=[parse_aggregate("distinct(v)")]))) == [
+        {"distinct(v)": 2}
+    ]
+
+
+def test_several_aggregates_in_one_pass():
+    out = list(
+        run(
+            rows(),
+            Query(aggregates=[parse_aggregate("count()"), parse_aggregate("avg(price)")]),
+        )
+    )
+    assert len(out) == 1
+    assert out[0]["count(*)"] == 4
+    assert "avg(price)" in out[0]
+
+
+def test_group_by_several_columns():
+    data = [
+        {"a": "x", "b": "p", "v": 1},
+        {"a": "x", "b": "p", "v": 2},
+        {"a": "x", "b": "q", "v": 4},
+    ]
+    out = list(
+        run(
+            data,
+            Query(aggregates=[parse_aggregate("sum(v)"), parse_aggregate("count()")],
+                  group_by=["a", "b"]),
+        )
+    )
+    assert out == [
+        {"a": "x", "b": "p", "sum(v)": 3.0, "count(*)": 2},
+        {"a": "x", "b": "q", "sum(v)": 4.0, "count(*)": 1},
+    ]
+
+
+def test_percentile_above_one_hundred_is_rejected():
+    with pytest.raises(QueryError):
+        parse_aggregate("p150(v)")

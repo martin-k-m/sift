@@ -8,7 +8,8 @@ pip install sift-query
 
 ```bash
 sift sales.csv --where "price > 100" --select name,price --sort price --desc
-sift sales.csv --agg "avg(price)" --group-by category
+sift sales.csv --agg "avg(price)" --agg "count()" --group-by category,region
+sift latency.csv --agg "p95(ms)" --agg "median(ms)" --group-by endpoint
 sift events.jsonl --where 'level == error' --limit 20 --to json
 cat sales.csv | sift --where "name ~ ^A" --select name
 ```
@@ -28,9 +29,19 @@ below in full, and there is nothing else to discover.
 | `--select` | keep and order columns |
 | `--sort` / `--desc` | order by a column |
 | `--limit` | stop after N rows |
-| `--agg` / `--group-by` | `count()`, `sum`, `min`, `max`, `avg` |
+| `--agg` / `--group-by` | `count()`, `sum`, `min`, `max`, `avg`, `median`, `distinct`, `pN`; repeat `--agg` for several at once |
 
 Comparisons: `=` `==` `!=` `>` `<` `>=` `<=`, and `~` for a regular expression.
+
+## Percentiles
+
+`pN(col)` takes any percentile, so `p95`, `p99` and `p1` all work rather than a
+fixed handful someone else picked. `median` is `p50`.
+
+There is no single definition of a percentile — there are at least nine, and
+they disagree on small inputs. `sift` uses linear interpolation between ranks,
+which is what numpy, pandas and Excel's `PERCENTILE` all default to, so a
+number from here matches the number you get when you check it somewhere else.
 
 ## What it does about CSV having no types
 

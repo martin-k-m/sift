@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 # `sift` is taken on PyPI, so the distribution is sift-query. The command, the
 # import and the repository all stay `sift`; only the pip install line differs.
 name = "sift-query"
-version = "0.1.0"
+version = "0.2.0"
 description = "Query CSV and JSONL from the terminal with a tiny SQL-like language. Streaming, zero dependencies."
 readme = "README.md"
 requires-python = ">=3.9"

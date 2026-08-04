@@ -11,12 +11,16 @@ from .query import Query, QueryError, parse_aggregate, parse_condition, run
 EXAMPLES = """\
 examples:
   sift data.csv --where "price > 100" --select name,price --sort price --desc
-  sift data.csv --agg "avg(price)" --group-by category
+  sift data.csv --agg "avg(price)" --agg "count()" --group-by category,region
+  sift latency.csv --agg "p95(ms)" --agg "median(ms)" --group-by endpoint
   sift events.jsonl --where 'level == error' --limit 20 --to json
   cat data.csv | sift --where "name ~ ^A" --select name
 
 comparisons:
   =  ==  !=  >  <  >=  <=      and  ~  for a regular expression match
+
+aggregates:
+  count()  sum  min  max  avg  median  distinct  and  pN  for any percentile
 """
 
 
@@ -34,8 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sort", metavar="COL", help="sort by a column")
     p.add_argument("--desc", action="store_true", help="sort descending")
     p.add_argument("--limit", "-n", type=int, metavar="N", help="stop after N rows")
-    p.add_argument("--agg", "-a", metavar="EXPR", help="count(), sum(col), min, max, avg")
-    p.add_argument("--group-by", "-g", metavar="COL", help="group the aggregate by a column")
+    p.add_argument("--agg", "-a", action="append", default=[], metavar="EXPR",
+                   help="count(), sum/min/max/avg/median/distinct(col), pN(col); repeatable")
+    p.add_argument("--group-by", "-g", metavar="COLS",
+                   help="group the aggregates by one or more comma-separated columns")
     p.add_argument("--from", dest="from_fmt", choices=["csv", "jsonl", "ndjson", "json"],
                    help="input format; inferred from the extension otherwise")
     p.add_argument("--to", dest="to_fmt", choices=["csv", "jsonl", "ndjson", "json"],
@@ -54,8 +60,8 @@ def main(argv: list[str] | None = None) -> int:
             sort_by=args.sort,
             descending=args.desc,
             limit=args.limit,
-            aggregate=parse_aggregate(args.agg) if args.agg else None,
-            group_by=args.group_by,
+            aggregates=[parse_aggregate(a) for a in args.agg],
+            group_by=[c.strip() for c in args.group_by.split(",")] if args.group_by else [],
         )
     except QueryError as e:
         print(f"sift: {e}", file=sys.stderr)

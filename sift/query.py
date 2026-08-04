@@ -18,7 +18,9 @@ from __future__ import annotations
 import operator
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Iterator, Sequence
+from typing import Any, Callable, Iterable, Iterator
+
+from . import aggregate
 
 Row = dict[str, Any]
 
@@ -34,32 +36,8 @@ COMPARATORS: dict[str, Callable[[Any, Any], bool]] = {
     "~": lambda a, b: re.search(str(b), str(a)) is not None,
 }
 
-AGGREGATES: dict[str, Callable[[Sequence[Any]], Any]] = {
-    "count": len,
-    "sum": lambda v: sum(_numbers(v)),
-    "min": lambda v: min(_numbers(v), default=None),
-    "max": lambda v: max(_numbers(v), default=None),
-    "avg": lambda v: (lambda n: sum(n) / len(n) if n else None)(_numbers(v)),
-}
-
-
 class QueryError(ValueError):
     """A query that cannot be understood, phrased for the person who typed it."""
-
-
-def _numbers(values: Iterable[Any]) -> list[float]:
-    """The numeric subset of a column, with blanks and text skipped.
-
-    Aggregating a column that is mostly numbers should not fail because one row
-    is empty or holds a label; the alternative is every user pre-cleaning their
-    data before they can count it.
-    """
-    out = []
-    for v in values:
-        n = coerce(v)
-        if isinstance(n, (int, float)) and not isinstance(n, bool):
-            out.append(float(n))
-    return out
 
 
 def coerce(value: Any) -> Any:
@@ -115,8 +93,11 @@ class Query:
     sort_by: str | None = None
     descending: bool = False
     limit: int | None = None
-    aggregate: tuple[str, str] | None = None  # (function, column)
-    group_by: str | None = None
+    # Several aggregates are computed in one pass rather than one per run,
+    # because `count()` and `avg(price)` of the same file is the ordinary ask
+    # and piping the file twice to get both is not an answer.
+    aggregates: list[tuple[str, str]] = field(default_factory=list)  # (function, column)
+    group_by: list[str] = field(default_factory=list)
 
 
 def parse_condition(text: str) -> Condition:
@@ -139,8 +120,8 @@ def parse_aggregate(text: str) -> tuple[str, str]:
     if not m:
         raise QueryError(f"expected something like sum(price), got {text!r}")
     fn, col = m.group(1).lower(), m.group(2).strip()
-    if fn not in AGGREGATES:
-        raise QueryError(f"unknown function {fn!r}; have {', '.join(AGGREGATES)}")
+    if aggregate.resolve(fn) is None:
+        raise QueryError(f"unknown function {fn!r}; have {aggregate.names()}")
     if fn != "count" and not col:
         raise QueryError(f"{fn}() needs a column")
     return fn, col or "*"
@@ -153,7 +134,7 @@ def run(rows: Iterable[Row], q: Query) -> Iterator[Row]:
     if q.where:
         out = (r for r in out if all(c.test(r) for c in q.where))
 
-    if q.aggregate:
+    if q.aggregates:
         yield from _aggregate(out, q)
         return
 
@@ -199,22 +180,38 @@ def _take(rows: Iterable[Row], n: int) -> Iterator[Row]:
 
 
 def _aggregate(rows: Iterable[Row], q: Query) -> Iterator[Row]:
-    fn_name, col = q.aggregate  # type: ignore[misc]
-    fn = AGGREGATES[fn_name]
-    label = f"{fn_name}({col})"
+    """Compute every requested aggregate, grouped or not, in a single pass.
+
+    Rows are buffered rather than per-aggregate value lists, because several
+    aggregates over different columns would otherwise need one list each and
+    the row is the thing they all read from. Grouped, this is bounded by the
+    key cardinality; ungrouped it holds the input, which is the same cost the
+    single-aggregate version paid.
+    """
+    labels = [f"{fn}({col})" for fn, col in q.aggregates]
+
+    def summarize(bucket: list[Row]) -> Row:
+        out: Row = {}
+        for (fn, col), label in zip(q.aggregates, labels):
+            reducer = aggregate.resolve(fn)
+            assert reducer is not None  # parse_aggregate rejected unknown names
+            # `count()` counts rows; everything else reads one column.
+            values = bucket if col == "*" else [r.get(col) for r in bucket]
+            out[label] = reducer(values)
+        return out
 
     if not q.group_by:
-        values = [r.get(col) for r in rows] if col != "*" else list(rows)
-        yield {label: fn(values)}
+        yield summarize(list(rows))
         return
 
-    # Grouping buffers one bucket per distinct key, not the whole input, so it
-    # is bounded by cardinality rather than by row count.
-    buckets: dict[Any, list[Any]] = {}
+    buckets: dict[tuple[Any, ...], list[Row]] = {}
     for r in rows:
-        if q.group_by not in r:
-            raise QueryError(f"cannot group on {q.group_by!r}: no such column")
-        buckets.setdefault(r[q.group_by], []).append(r if col == "*" else r.get(col))
+        missing = [g for g in q.group_by if g not in r]
+        if missing:
+            raise QueryError(f"cannot group on {missing[0]!r}: no such column")
+        buckets.setdefault(tuple(r[g] for g in q.group_by), []).append(r)
 
-    for key, values in buckets.items():
-        yield {q.group_by: key, label: fn(values)}
+    for key, bucket in buckets.items():
+        row: Row = dict(zip(q.group_by, key))
+        row.update(summarize(bucket))
+        yield row
