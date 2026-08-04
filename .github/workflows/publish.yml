@@ -20,16 +20,26 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The tests gate the upload. PyPI does not allow a version to be replaced
-      # once it exists, so a broken release is permanent and the only place to
-      # catch it is before the upload rather than after.
       - run: pip install --upgrade build twine pytest
-      - run: pytest -q
       - run: python -m build
 
       # Catches a malformed README or missing metadata, which PyPI rejects at
       # the end of the upload rather than the start.
       - run: python -m twine check dist/*
+
+      # The tests gate the upload, and they run against the installed wheel
+      # rather than the source tree on purpose. Testing the source proves the
+      # code works; testing the wheel also proves the wheel contains it. A
+      # module left out of the package passes every source-tree test and fails
+      # for the first person who installs it, and PyPI does not allow a version
+      # to be replaced, so that mistake would be permanent.
+      - run: pip install dist/*.whl
+      - run: python -m pytest tests -q
+
+      # The console script is the interface most people use and nothing above
+      # touches it; an entry point pointing at a function that moved would
+      # otherwise ship.
+      - run: sift --version
 
       - uses: actions/upload-artifact@v5
         with:
