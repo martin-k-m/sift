@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor and the current release. The floor matters: the project
+        # claims 3.9 support and nothing else here would catch a 3.10-only
+        # syntax slipping in.
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - run: python -m pytest tests -q
