@@ -17,7 +17,7 @@ examples:
   cat data.csv | sift --where "name ~ ^A" --select name
 
 comparisons:
-  =  ==  !=  >  <  >=  <=      and  ~  for a regular expression match
+  =  ==  !=  >  <  >=  <=      ~  matches a regex, !~  does not match
 
 aggregates:
   count()  sum  min  max  avg  median  distinct  and  pN  for any percentile

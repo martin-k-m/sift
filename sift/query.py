@@ -33,8 +33,12 @@ COMPARATORS: dict[str, Callable[[Any, Any], bool]] = {
     "=": operator.eq,
     ">": operator.gt,
     "<": operator.lt,
+    # `!~` before `~`, so `a !~ b` is read as "does not match", not as `~` with
+    # a stray `!` left on the column name.
+    "!~": lambda a, b: re.search(str(b), str(a)) is None,
     "~": lambda a, b: re.search(str(b), str(a)) is not None,
 }
+REGEX_OPS = ("~", "!~")
 
 class QueryError(ValueError):
     """A query that cannot be understood, phrased for the person who typed it."""
@@ -107,16 +111,18 @@ def parse_condition(text: str) -> Condition:
             col, raw = col.strip(), raw.strip()
             if not col:
                 raise QueryError(f"missing column name in {text!r}")
-            # `~` is a regex match and its operand is always a pattern, never a
-            # number, so it is the one comparator that skips coercion.
-            return Condition(col, op, raw if op == "~" else coerce(raw))
+            # `~` and `!~` are regex matches and their operand is always a
+            # pattern, never a number, so they skip coercion.
+            return Condition(col, op, raw if op in REGEX_OPS else coerce(raw))
     raise QueryError(
         f"no comparison in {text!r}; expected one of {', '.join(COMPARATORS)}"
     )
 
 
 def parse_aggregate(text: str) -> tuple[str, str]:
-    m = re.fullmatch(r"\s*(\w+)\s*\(\s*([^)]*)\s*\)\s*", text)
+    # The name allows a dot so a fractional percentile like `p99.9` reaches
+    # `resolve`; `resolve` still rejects anything that is not a real function.
+    m = re.fullmatch(r"\s*([\w.]+)\s*\(\s*([^)]*)\s*\)\s*", text)
     if not m:
         raise QueryError(f"expected something like sum(price), got {text!r}")
     fn, col = m.group(1).lower(), m.group(2).strip()
@@ -154,15 +160,19 @@ def run(rows: Iterable[Row], q: Query) -> Iterator[Row]:
     if q.sort_by:
         key = q.sort_by
         # Buffers, unavoidably: the last row read can be the first row out.
+        # Materialize once up front: the mixed-type fallback below sorts the
+        # same rows a second time, and re-reading a generator would find it
+        # already emptied by the first attempt.
+        buffered = list(out)
         # Sorting on the coerced value so 9 lands before 10.
         try:
-            out = sorted(out, key=lambda r: (r[key] is None, coerce(r[key])), reverse=q.descending)
+            out = sorted(buffered, key=lambda r: (r[key] is None, coerce(r[key])), reverse=q.descending)
         except KeyError:
             raise QueryError(f"cannot sort on {key!r}: no such column") from None
         except TypeError:
             # Mixed types in one column have no total order. Comparing as text
             # is at least deterministic, and the alternative is refusing to run.
-            out = sorted(out, key=lambda r: str(r[key]), reverse=q.descending)
+            out = sorted(buffered, key=lambda r: str(r[key]), reverse=q.descending)
 
     if q.limit is not None:
         out = _take(out, q.limit)

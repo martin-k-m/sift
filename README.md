@@ -31,7 +31,8 @@ below in full, and there is nothing else to discover.
 | `--limit` | stop after N rows |
 | `--agg` / `--group-by` | `count()`, `sum`, `min`, `max`, `avg`, `median`, `distinct`, `pN`; repeat `--agg` for several at once |
 
-Comparisons: `=` `==` `!=` `>` `<` `>=` `<=`, and `~` for a regular expression.
+Comparisons: `=` `==` `!=` `>` `<` `>=` `<=`, and `~` for a regular expression
+match, `!~` for one that does not match.
 
 ## Percentiles
 

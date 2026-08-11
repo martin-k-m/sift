@@ -257,3 +257,99 @@ def test_group_by_several_columns():
 def test_percentile_above_one_hundred_is_rejected():
     with pytest.raises(QueryError):
         parse_aggregate("p150(v)")
+
+
+def test_fractional_percentile():
+    # A percentile need not be an integer; p99.9 is a common latency ask.
+    data = [{"v": v} for v in range(1, 101)]  # 1..100
+    out = list(run(data, Query(aggregates=[parse_aggregate("p99.9(v)")])))
+    assert out[0]["p99.9(v)"] == pytest.approx(99.901)
+
+
+# ── negated regex (!~) ───────────────────────────────────────────────────────
+def test_negated_regex_keeps_non_matches():
+    data = [{"name": "apple"}, {"name": "banana"}, {"name": "avocado"}]
+    out = list(run(data, Query(where=[parse_condition("name !~ ^a")])))
+    assert [r["name"] for r in out] == ["banana"]
+
+
+def test_negated_regex_is_the_complement_of_match():
+    data = rows()
+    match = {r["name"] for r in run(data, Query(where=[parse_condition("name ~ o")]))}
+    nomatch = {r["name"] for r in run(rows(), Query(where=[parse_condition("name !~ o")]))}
+    assert match.isdisjoint(nomatch)
+    assert match | nomatch == {r["name"] for r in rows()}
+
+
+def test_negated_regex_operand_is_not_coerced():
+    # The pattern side of ~ and !~ is always text, never a number.
+    c = parse_condition("v !~ 10")
+    assert c.op == "!~"
+    assert c.value == "10"
+
+
+# ── mixed-type sort no longer drops rows (regression) ────────────────────────
+def test_mixed_type_sort_after_filter_keeps_every_row():
+    # A --sort on a column with both numbers and text falls back to sorting as
+    # text. When the rows arrive as a generator (any query with --where), that
+    # fallback must not re-read an already-consumed stream and yield nothing.
+    data = [{"v": v, "k": "1"} for v in ("abc", "5", "def", "9", "ghi")]
+    q = Query(where=[parse_condition("k = 1")], sort_by="v")
+    out = list(run(data, q))
+    assert len(out) == len(data)
+    assert [r["v"] for r in out] == ["5", "9", "abc", "def", "ghi"]
+
+
+def test_sort_puts_missing_values_last():
+    data = [{"v": 3}, {"v": None}, {"v": 1}]
+    out = list(run(data, Query(sort_by="v")))
+    assert [r["v"] for r in out] == [1, 3, None]
+
+
+# ── formats and conversion ───────────────────────────────────────────────────
+def test_json_array_round_trips_to_jsonl():
+    src = '[{"a": 1}, {"a": 2}]'
+    out = _io.StringIO()
+    n = write(read(_io.StringIO(src), "json"), out, "jsonl")
+    assert n == 2
+    assert [json.loads(l) for l in out.getvalue().splitlines()] == [{"a": 1}, {"a": 2}]
+
+
+def test_json_output_is_a_single_array():
+    out = _io.StringIO()
+    write(read(_io.StringIO('{"a": 1}\n{"a": 2}\n'), "jsonl"), out, "json")
+    assert json.loads(out.getvalue()) == [{"a": 1}, {"a": 2}]
+
+
+def test_json_array_must_be_a_list():
+    with pytest.raises(ValueError, match="array of objects"):
+        list(read(_io.StringIO('{"a": 1}'), "json"))
+
+
+def test_json_array_items_must_be_objects():
+    with pytest.raises(ValueError, match="item 1"):
+        list(read(_io.StringIO('[{"a": 1}, 2]'), "json"))
+
+
+def test_ndjson_reads_like_jsonl():
+    out = list(read(_io.StringIO('{"a": 1}\n{"a": 2}\n'), "ndjson"))
+    assert out == [{"a": 1}, {"a": 2}]
+
+
+def test_sniff_prefers_explicit_over_extension():
+    from sift.io import sniff
+
+    assert sniff("data.csv", None) == "csv"
+    assert sniff("data.jsonl", None) == "jsonl"
+    assert sniff("data.ndjson", None) == "jsonl"
+    assert sniff("data.json", None) == "json"
+    assert sniff(None, None) == "csv"
+    assert sniff("data.csv", "jsonl") == "jsonl"
+
+
+def test_cli_converts_csv_to_jsonl(tmp_path, capsys):
+    f = tmp_path / "d.csv"
+    f.write_text(CSV, encoding="utf-8")
+    assert main([str(f), "--to", "jsonl", "--select", "name,price"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert json.loads(lines[0]) == {"name": "widget", "price": "10"}
