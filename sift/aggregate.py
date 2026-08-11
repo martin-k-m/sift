@@ -34,7 +34,7 @@ def numbers(values: Iterable[Any]) -> list[float]:
 def percentile(values: Sequence[Any], q: float) -> float | None:
     """The q-th percentile, 0 to 100, by linear interpolation between ranks.
 
-    There is no single definition of a percentile — there are at least nine,
+    There is no single definition of a percentile, there are at least nine,
     and they disagree on small inputs. This is the one numpy, pandas and Excel's
     PERCENTILE all use by default, so a number from here matches the number a
     reader gets when they check it somewhere else. That agreement is worth more
@@ -60,7 +60,7 @@ def _distinct(values: Sequence[Any]) -> int:
     """How many different values a column holds.
 
     Counts the raw text rather than the coerced value, because two spellings of
-    the same number are two spellings — a column holding `1` and `1.0` has two
+    the same number are two spellings, a column holding `1` and `1.0` has two
     distinct entries in the file, and collapsing them would be a claim about the
     data that this tool is not in a position to make. Unhashable values fall
     back to their text, which is the only thing a set can hold.
@@ -84,7 +84,7 @@ NAMED: dict[str, Reducer] = {
     "distinct": _distinct,
 }
 
-# `p95`, `p99`, `p1` — any percentile, rather than a fixed handful. Written as
+# `p95`, `p99`, `p1`, any percentile, rather than a fixed handful. Written as
 # a pattern because the useful ones differ by field: p95 for a latency, p1 for
 # a floor, and nobody wants to file a bug to get p97.
 PERCENTILE_NAME = re.compile(r"p(\d{1,3}(?:\.\d+)?)$")

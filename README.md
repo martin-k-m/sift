@@ -17,7 +17,7 @@ cat sales.csv | sift --where "name ~ ^A" --select name
 ## Why not SQL
 
 SQL over a single file needs a parser, a planner and a type system to deserve
-the name. Anything less is a dialect that lies about what it accepts — you type
+the name. Anything less is a dialect that lies about what it accepts, you type
 a `JOIN` or a window function, and it fails somewhere unhelpful.
 
 `sift` is a pipeline of named clauses instead. There are five, they are listed
@@ -39,7 +39,7 @@ match, `!~` for one that does not match.
 `pN(col)` takes any percentile, so `p95`, `p99` and `p1` all work rather than a
 fixed handful someone else picked. `median` is `p50`.
 
-There is no single definition of a percentile — there are at least nine, and
+There is no single definition of a percentile, there are at least nine, and
 they disagree on small inputs. `sift` uses linear interpolation between ranks,
 which is what numpy, pandas and Excel's `PERCENTILE` all default to, so a
 number from here matches the number you get when you check it somewhere else.
@@ -71,7 +71,7 @@ stops reading after ten rows rather than after the file.
 Three things cannot stream, and are the only places memory grows with input:
 
 - `--sort`, because the last row read can be the first row out;
-- `--group-by`, which holds one bucket per distinct key — bounded by
+- `--group-by`, which holds one bucket per distinct key, bounded by
   cardinality, not by row count;
 - reading `--from json`, because an array's shape is only known at its closing
   bracket. Use JSONL where the file is large.

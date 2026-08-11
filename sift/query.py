@@ -3,8 +3,8 @@ The query language, and the engine that runs it.
 
 Deliberately not SQL. SQL over a single file needs a parser, a planner and a
 type system to be worth the name, and anything less is a dialect that lies
-about what it accepts. This is a pipeline of named clauses instead — `where`,
-`select`, `sort`, `limit`, and one aggregation form — which is small enough to
+about what it accepts. This is a pipeline of named clauses instead, `where`,
+`select`, `sort`, `limit`, and one aggregation form, which is small enough to
 specify completely on one screen and to implement without a parser generator.
 
 Everything streams. A row is read, tested, projected and written before the
@@ -85,7 +85,7 @@ class Condition:
             return fn(left, right)
         except TypeError:
             # A numeric comparison against text is not an error in the data, it
-            # is simply false — mixed columns are normal and should filter, not
+            # is simply false, mixed columns are normal and should filter, not
             # crash the run.
             return False
 
