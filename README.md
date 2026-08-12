@@ -1,5 +1,10 @@
 # sift
 
+[![CI](https://github.com/martin-k-m/sift/actions/workflows/ci.yml/badge.svg)](https://github.com/martin-k-m/sift/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/sift-query.svg)](https://pypi.org/project/sift-query/)
+[![Python](https://img.shields.io/pypi/pyversions/sift-query.svg)](https://pypi.org/project/sift-query/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Query CSV and JSONL from the terminal. Streaming, zero dependencies, pure stdlib.
 
 ```bash
