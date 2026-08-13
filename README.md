@@ -94,6 +94,10 @@ sift data.csv --to jsonl > data.jsonl
 Piping into `head` closes the pipe early; that is the pipeline working, so
 `sift` exits quietly rather than reporting a broken pipe.
 
+The streaming claim is measured, not asserted: a `--where --limit` query holds a
+flat **0.15 MB** whether the file is 500k or 2M rows, while `--sort` grows from
+237 MB to 949 MB over the same inputs. See [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
+
 ## Exit codes
 
 `0` success · `1` an input or file problem · `2` a query that could not be

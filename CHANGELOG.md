@@ -10,6 +10,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Benchmark script (`benchmarks/bench.py`) measuring throughput and peak memory
   with the stdlib `tracemalloc`, demonstrating that streaming clauses hold
   constant memory while `--sort` and `--group-by` buffer.
+- Benchmark results writeup (`benchmarks/RESULTS.md`) with measured numbers: a
+  streaming `--where --limit` query holds a flat 0.15 MB from 500k to 2M rows,
+  while `--sort` grows 237 MB to 949 MB. Linked from the README.
 - Contribution, security, and changelog documentation.
 
 ## [0.2.0]
