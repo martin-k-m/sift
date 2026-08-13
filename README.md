@@ -1,5 +1,10 @@
 # sift
 
+[![CI](https://github.com/martin-k-m/sift/actions/workflows/ci.yml/badge.svg)](https://github.com/martin-k-m/sift/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/sift-query.svg)](https://pypi.org/project/sift-query/)
+[![Python](https://img.shields.io/pypi/pyversions/sift-query.svg)](https://pypi.org/project/sift-query/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Query CSV and JSONL from the terminal. Streaming, zero dependencies, pure stdlib.
 
 ```bash
@@ -88,6 +93,10 @@ sift data.csv --to jsonl > data.jsonl
 
 Piping into `head` closes the pipe early; that is the pipeline working, so
 `sift` exits quietly rather than reporting a broken pipe.
+
+The streaming claim is measured, not asserted: a `--where --limit` query holds a
+flat **0.15 MB** whether the file is 500k or 2M rows, while `--sort` grows from
+237 MB to 949 MB over the same inputs. See [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
 
 ## Exit codes
 
