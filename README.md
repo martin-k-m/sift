@@ -113,6 +113,18 @@ that same 949 MB and now holds a flat **0.14 MB**. See
 `0` success · `1` an input or file problem · `2` a query that could not be
 understood, with the reason and the columns that do exist.
 
+## Related
+
+Four small tools that each do one thing to a table of data, and are written to
+be read rather than to compete with DuckDB:
+
+- [csvpeek](https://github.com/martin-k-m/csvpeek) profiles a file: column
+  types, null counts, distributions.
+- **sift** queries one: filter, sort, aggregate, in one pass where it can.
+- [drift](https://github.com/martin-k-m/drift) diffs two of them, in Rust.
+- [quarry](https://github.com/martin-k-m/quarry) is the long way round, a
+  hand-written SQL parser and executor meant to be read.
+
 ## License
 
 MIT
