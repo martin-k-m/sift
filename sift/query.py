@@ -15,10 +15,12 @@ buffering, and they are the only places memory grows with input size.
 
 from __future__ import annotations
 
+import heapq
 import operator
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable
 
 from . import aggregate
 
@@ -67,6 +69,31 @@ def coerce(value: Any) -> Any:
         return float(s)
     except ValueError:
         return value
+
+
+def sort_key(value: Any) -> tuple[int, Any, str]:
+    """A total order over one column's values that can never raise.
+
+    A CSV column is text until something reads it as a number, so one column can
+    hold `9`, `10` and `n/a` at once and no single Python type compares all
+    three. The key answers that by ranking the kinds first and only then the
+    values: numbers before text before missing. Within a kind the comparison is
+    the natural one, so a column that is entirely numeric sorts 9 before 10 and a
+    column that is entirely text sorts alphabetically, which is what a uniform
+    column looked like before this existed. The gain is that a mixed column now
+    has one defined answer reached in a single pass, instead of a failed numeric
+    sort followed by a second pass that compared everything as text.
+    """
+    if value is None:
+        return (2, 0.0, "")
+    v = coerce(value)
+    # Rank 0 holds int, float and bool, which compare against each other
+    # natively; the int is kept as an int so a 19-digit id is not rounded by a
+    # trip through float. Ranks never mix, so the second slot is only ever
+    # compared against another value of the same kind.
+    if isinstance(v, (int, float)):
+        return (0, v, "")
+    return (1, 0.0, str(v))
 
 
 @dataclass
@@ -157,24 +184,35 @@ def run(rows: Iterable[Row], q: Query) -> Iterator[Row]:
 
         out = (project(r) for r in out)
 
+    limited = False
+
     if q.sort_by:
         key = q.sort_by
-        # Buffers, unavoidably: the last row read can be the first row out.
-        # Materialize once up front: the mixed-type fallback below sorts the
-        # same rows a second time, and re-reading a generator would find it
-        # already emptied by the first attempt.
-        buffered = list(out)
-        # Sorting on the coerced value so 9 lands before 10.
-        try:
-            out = sorted(buffered, key=lambda r: (r[key] is None, coerce(r[key])), reverse=q.descending)
-        except KeyError:
-            raise QueryError(f"cannot sort on {key!r}: no such column") from None
-        except TypeError:
-            # Mixed types in one column have no total order. Comparing as text
-            # is at least deterministic, and the alternative is refusing to run.
-            out = sorted(buffered, key=lambda r: str(r[key]), reverse=q.descending)
 
-    if q.limit is not None:
+        def row_key(r: Row) -> tuple[int, Any, str]:
+            try:
+                return sort_key(r[key])
+            except KeyError:
+                raise QueryError(f"cannot sort on {key!r}: no such column") from None
+
+        if q.limit is not None:
+            # `--sort --limit N` never needs the whole file. Only the best N
+            # rows seen so far can still be in the answer, so a bounded heap
+            # holds N rows instead of the input and the run costs O(N) memory
+            # rather than O(rows). `nsmallest`/`nlargest` are documented as
+            # equivalent to sorting and slicing, ties included, so the output is
+            # the same rows in the same order the full sort produced.
+            limited = True
+            if q.limit <= 0:
+                return
+            pick = heapq.nlargest if q.descending else heapq.nsmallest
+            out = pick(q.limit, out, key=row_key)
+        else:
+            # Buffers, unavoidably: without a limit the last row read can still
+            # be the first row out, so the whole input has to be held.
+            out = sorted(out, key=row_key, reverse=q.descending)
+
+    if q.limit is not None and not limited:
         out = _take(out, q.limit)
 
     yield from out

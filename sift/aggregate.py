@@ -9,7 +9,8 @@ to be answered somewhere a reader can find it.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any, Callable
 
 Reducer = Callable[[Sequence[Any]], Any]
 

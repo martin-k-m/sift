@@ -73,6 +73,9 @@ def main() -> None:
             Query(where=[parse_condition("price > 500")],
                   select=["id", "price"], limit=10))
 
+    measure("--sort price --limit 10", csv_text,
+            Query(sort_by="price", limit=10))
+
     print("\nBuffering clauses (memory grows with input, by design):")
     measure("--sort price", csv_text, Query(sort_by="price"))
     measure("--agg avg(price) -g category", csv_text,

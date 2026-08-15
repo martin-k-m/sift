@@ -108,7 +108,8 @@ def test_aggregate_skips_blanks_and_text():
 
 
 def test_group_by():
-    out = list(run(rows(), Query(aggregates=[parse_aggregate("sum(price)")], group_by=["category"])))
+    q = Query(aggregates=[parse_aggregate("sum(price)")], group_by=["category"])
+    out = list(run(rows(), q))
     assert {r["category"]: r["sum(price)"] for r in out} == {"tools": 260.0, "outdoor": 257.0}
 
 
@@ -135,7 +136,7 @@ def test_jsonl_round_trip():
     out = _io.StringIO()
     n = write(read(_io.StringIO(src), "jsonl"), out, "jsonl")
     assert n == 2  # the blank line is skipped, not an error
-    assert [json.loads(l) for l in out.getvalue().splitlines()] == [{"a": 1}, {"a": 2}]
+    assert [json.loads(line) for line in out.getvalue().splitlines()] == [{"a": 1}, {"a": 2}]
 
 
 def test_csv_header_follows_the_projection():
@@ -312,7 +313,7 @@ def test_json_array_round_trips_to_jsonl():
     out = _io.StringIO()
     n = write(read(_io.StringIO(src), "json"), out, "jsonl")
     assert n == 2
-    assert [json.loads(l) for l in out.getvalue().splitlines()] == [{"a": 1}, {"a": 2}]
+    assert [json.loads(line) for line in out.getvalue().splitlines()] == [{"a": 1}, {"a": 2}]
 
 
 def test_json_output_is_a_single_array():
@@ -353,3 +354,144 @@ def test_cli_converts_csv_to_jsonl(tmp_path, capsys):
     assert main([str(f), "--to", "jsonl", "--select", "name,price"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert json.loads(lines[0]) == {"name": "widget", "price": "10"}
+
+
+# ── bounded top-N for --sort --limit ─────────────────────────────────────────
+def _spread(n):
+    # Deterministic, unsorted, with deliberate ties so the tie-breaking order is
+    # exercised rather than assumed.
+    return [{"v": (i * 7919) % 1000, "i": i} for i in range(n)]
+
+
+@pytest.mark.parametrize("desc", [False, True])
+@pytest.mark.parametrize("n", [1, 3, 25, 500, 5000])
+def test_top_n_matches_a_full_sort_then_slice(desc, n):
+    data = _spread(2000)
+    bounded = list(run(iter(data), Query(sort_by="v", descending=desc, limit=n)))
+    full = list(run(iter(data), Query(sort_by="v", descending=desc)))[:n]
+    assert bounded == full
+
+
+def test_top_n_on_a_mixed_column_matches_the_full_sort():
+    data = [{"v": v} for v in ("abc", "5", None, "10", "def", "9", "")]
+    for desc in (False, True):
+        bounded = list(run(iter(data), Query(sort_by="v", descending=desc, limit=4)))
+        full = list(run(iter(data), Query(sort_by="v", descending=desc)))[:4]
+        assert bounded == full
+
+
+def test_top_n_does_not_buffer_the_input():
+    # The point of the bounded path: peak memory tracks the limit, not the file.
+    # Measured rather than asserted, because the whole claim is a memory claim.
+    import tracemalloc
+
+    def peak(q):
+        data = _spread(200_000)  # built outside the measurement window
+        tracemalloc.start()
+        list(run(iter(data), q))
+        _, p = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return p
+
+    bounded = peak(Query(sort_by="v", limit=10))
+    full = peak(Query(sort_by="v"))
+    # A 200k-row sort holds the rows; a top-10 holds ten. The margin is orders
+    # of magnitude, so 50x is a floor that cannot trip on allocator noise.
+    assert full > bounded * 50, f"bounded={bounded} full={full}"
+
+
+def test_top_n_reports_a_missing_sort_column():
+    with pytest.raises(QueryError, match="no such column"):
+        list(run(iter(rows()), Query(sort_by="nope", limit=3)))
+
+
+def test_sort_with_limit_zero_yields_nothing():
+    assert list(run(iter(rows()), Query(sort_by="price", limit=0))) == []
+
+
+def test_numbers_sort_before_text_in_a_mixed_column():
+    # One defined answer for a column no single type can order: numbers first,
+    # then text, then missing.
+    data = [{"v": v} for v in ("n/a", "10", None, "9", "abc")]
+    out = [r["v"] for r in run(iter(data), Query(sort_by="v"))]
+    assert out == ["9", "10", "abc", "n/a", None]
+
+
+# ── real-world input: BOMs, encodings, oversized fields ──────────────────────
+def test_an_excel_byte_order_mark_does_not_rename_the_first_column(tmp_path):
+    # Excel writes a BOM on every CSV it exports. Read as plain UTF-8 it lands
+    # on the front of the first header name, and the column the user can see is
+    # then the one column they cannot query.
+    f = tmp_path / "excel.csv"
+    f.write_bytes("name,price\r\nwidget,10\r\n".encode("utf-8-sig"))
+    assert main([str(f), "--where", "name = widget"]) == 0
+
+
+def test_a_non_utf8_file_says_which_flag_fixes_it(tmp_path, capsys):
+    f = tmp_path / "latin.csv"
+    f.write_bytes("name,price\r\ncaf\xe9,10\r\n".encode("cp1252"))
+    assert main([str(f)]) == 1
+    err = capsys.readouterr().err
+    assert "--encoding" in err
+    assert str(f) in err
+
+
+def test_the_encoding_flag_reads_the_file(tmp_path, capsys):
+    f = tmp_path / "latin.csv"
+    f.write_bytes("name,price\r\ncaf\xe9,10\r\n".encode("cp1252"))
+    assert main([str(f), "--encoding", "cp1252"]) == 0
+    assert "caf\xe9" in capsys.readouterr().out
+
+
+def test_an_unknown_encoding_is_a_query_error_not_a_traceback(tmp_path, capsys):
+    f = tmp_path / "a.csv"
+    f.write_text("a\n1\n")
+    assert main([str(f), "--encoding", "no-such-codec"]) == 2
+    assert "unknown encoding" in capsys.readouterr().err
+
+
+def test_a_field_larger_than_the_csv_default_limit_is_read(tmp_path):
+    # One base64 blob or embedded document in a cell passes the stdlib's 128 KB
+    # default, which exists to bound a runaway quote, not to reject real rows.
+    f = tmp_path / "big.csv"
+    f.write_text("a,b\n" + "x" * 200_000 + ",2\n", newline="")
+    assert main([str(f), "--select", "b"]) == 0
+
+
+def test_a_csv_error_becomes_a_message_with_a_line_number():
+    # `_csv.Error` is not a ValueError, so before this it reached the user as a
+    # traceback. Squeezing the field limit is the cheapest way to provoke one.
+    import csv as _csv
+
+    previous = _csv.field_size_limit(10)
+    try:
+        src = _io.StringIO("a,b\n" + "x" * 50 + ",2\n")
+        with pytest.raises(ValueError, match="line 2"):
+            list(read(src, "csv"))
+    finally:
+        _csv.field_size_limit(previous)
+
+
+def test_embedded_newlines_and_quotes_survive_a_round_trip():
+    src = 'name,note\n"a,b","line one\nline two"\n"q","say ""hi"""\n'
+    got = list(read(_io.StringIO(src), "csv"))
+    assert got[0]["name"] == "a,b"
+    assert got[0]["note"] == "line one\nline two"
+    assert got[1]["note"] == 'say "hi"'
+    out = _io.StringIO()
+    write(iter(got), out, "csv")
+    assert list(read(_io.StringIO(out.getvalue()), "csv")) == got
+
+
+def test_an_empty_file_is_no_rows_not_an_error(tmp_path, capsys):
+    f = tmp_path / "empty.csv"
+    f.write_text("")
+    assert main([str(f)]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_a_header_with_no_rows_is_no_rows_not_an_error(tmp_path, capsys):
+    f = tmp_path / "headeronly.csv"
+    f.write_text("a,b\n")
+    assert main([str(f), "--where", "a > 1"]) == 0
+    assert capsys.readouterr().out == ""

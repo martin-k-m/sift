@@ -8,12 +8,28 @@ reader loads the file.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import json
 import sys
-from typing import Any, IO, Iterable, Iterator
+from collections.abc import Iterable, Iterator
+from typing import IO, Any
 
 Row = dict[str, Any]
+
+# The default of 128 KB is a guard against a runaway quote eating a whole file,
+# not a statement about legitimate data, and a single embedded document or
+# base64 blob in one cell passes it easily. Raised to a value that still bounds
+# the damage but does not reject real rows. Not `sys.maxsize`: the limit is
+# stored as a C long, which is 32-bit on Windows and rejects anything larger.
+csv.field_size_limit(2**31 - 1)
+
+# `utf-8-sig` reads plain UTF-8 unchanged and additionally strips the byte order
+# mark that Excel writes on every CSV it exports. Without it the mark lands on
+# the front of the first header name, so `--where "name = x"` on an
+# Excel-exported file reports that there is no column `name` while showing what
+# looks like exactly that column back to the user.
+DEFAULT_ENCODING = "utf-8-sig"
 
 
 def sniff(path: str | None, explicit: str | None) -> str:
@@ -33,7 +49,20 @@ def read(stream: IO[str], fmt: str) -> Iterator[Row]:
     if fmt == "csv":
         # DictReader gives the header as keys and skips it as a row, which is
         # the behaviour every query here assumes.
-        yield from csv.DictReader(stream)
+        reader = csv.DictReader(stream)
+        while True:
+            try:
+                row = next(reader)
+            except StopIteration:
+                return
+            except csv.Error as e:
+                # `_csv.Error` is not a ValueError, so without this it escapes
+                # the CLI's handlers as a traceback. The line number is what
+                # makes the message actionable on a 2 GB file. `line_num` is
+                # the last line read in full, so the bad row starts on the next
+                # one; a quoted field spanning lines can run on from there.
+                raise ValueError(f"line {reader.line_num + 1}: {e}") from None
+            yield row
     elif fmt in ("jsonl", "ndjson"):
         for n, line in enumerate(stream, 1):
             line = line.strip()
@@ -87,9 +116,16 @@ def write(rows: Iterable[Row], out: IO[str], fmt: str) -> int:
     return n
 
 
-def open_input(path: str | None) -> IO[str]:
+def open_input(path: str | None, encoding: str = DEFAULT_ENCODING) -> IO[str]:
     if path is None or path == "-":
+        # stdin arrives already decoded, with whatever the platform chose. Ask
+        # for the same encoding a file would get so `sift f.csv` and
+        # `cat f.csv | sift` do not disagree about what the bytes mean.
+        # A StringIO under test, or a stream already consumed, has nothing to
+        # reconfigure. Reading it as it stands is the right fallback.
+        with contextlib.suppress(AttributeError, ValueError, OSError):
+            sys.stdin.reconfigure(encoding=encoding, newline="")  # type: ignore[union-attr]
         return sys.stdin
     # newline="" is required by csv: it does its own line-ending handling, and
     # without it a file with \r\n produces a stray \r on every last field.
-    return open(path, newline="", encoding="utf-8")
+    return open(path, newline="", encoding=encoding)

@@ -33,7 +33,7 @@ below in full, and there is nothing else to discover.
 | `--where` | keep rows matching a comparison; repeat for AND |
 | `--select` | keep and order columns |
 | `--sort` / `--desc` | order by a column |
-| `--limit` | stop after N rows |
+| `--limit` | stop after N rows; with `--sort`, keep the top N without holding the file |
 | `--agg` / `--group-by` | `count()`, `sum`, `min`, `max`, `avg`, `median`, `distinct`, `pN`; repeat `--agg` for several at once |
 
 Comparisons: `=` `==` `!=` `>` `<` `>=` `<=`, and `~` for a regular expression
@@ -75,7 +75,9 @@ stops reading after ten rows rather than after the file.
 
 Three things cannot stream, and are the only places memory grows with input:
 
-- `--sort`, because the last row read can be the first row out;
+- `--sort`, because the last row read can be the first row out. `--sort` *with*
+  `--limit N` is the exception: only the best N rows seen so far can still be in
+  the answer, so it keeps N rows and not the file;
 - `--group-by`, which holds one bucket per distinct key, bounded by
   cardinality, not by row count;
 - reading `--from json`, because an array's shape is only known at its closing
@@ -91,12 +93,20 @@ Input is inferred from the extension and overridden with `--from`; output is
 sift data.csv --to jsonl > data.jsonl
 ```
 
+Input is read as UTF-8, tolerating the byte order mark Excel writes, so an
+Excel export is queryable by its first column rather than by a name with an
+invisible character on the front. For the exports that are not UTF-8 at all,
+`--encoding cp1252` or `--encoding latin-1`; the error message says so when it
+happens.
+
 Piping into `head` closes the pipe early; that is the pipeline working, so
 `sift` exits quietly rather than reporting a broken pipe.
 
 The streaming claim is measured, not asserted: a `--where --limit` query holds a
-flat **0.15 MB** whether the file is 500k or 2M rows, while `--sort` grows from
-237 MB to 949 MB over the same inputs. See [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
+flat **0.15 MB** whether the file is 500k or 2M rows, while a bare `--sort` grows
+from 237 MB to 949 MB over the same inputs. `--sort price --limit 10` used to pay
+that same 949 MB and now holds a flat **0.14 MB**. See
+[benchmarks/RESULTS.md](benchmarks/RESULTS.md).
 
 ## Exit codes
 

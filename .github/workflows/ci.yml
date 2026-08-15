@@ -23,3 +23,16 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: pip install pytest
       - run: python -m pytest tests -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      # `target-version = "py39"` in pyproject.toml is what makes this a real
+      # check of the support floor and not just a style pass: ruff refuses to
+      # suggest 3.10+ syntax and flags it if it appears.
+      - run: ruff check .
