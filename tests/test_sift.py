@@ -358,8 +358,7 @@ def test_cli_converts_csv_to_jsonl(tmp_path, capsys):
 
 # ── bounded top-N for --sort --limit ─────────────────────────────────────────
 def _spread(n):
-    # Deterministic, unsorted, with deliberate ties so the tie-breaking order is
-    # exercised rather than assumed.
+    # Unsorted, with deliberate ties, so tie-breaking order is exercised.
     return [{"v": (i * 7919) % 1000, "i": i} for i in range(n)]
 
 
@@ -381,8 +380,6 @@ def test_top_n_on_a_mixed_column_matches_the_full_sort():
 
 
 def test_top_n_does_not_buffer_the_input():
-    # The point of the bounded path: peak memory tracks the limit, not the file.
-    # Measured rather than asserted, because the whole claim is a memory claim.
     import tracemalloc
 
     def peak(q):
@@ -395,8 +392,7 @@ def test_top_n_does_not_buffer_the_input():
 
     bounded = peak(Query(sort_by="v", limit=10))
     full = peak(Query(sort_by="v"))
-    # A 200k-row sort holds the rows; a top-10 holds ten. The margin is orders
-    # of magnitude, so 50x is a floor that cannot trip on allocator noise.
+    # The real margin is orders of magnitude; 50x cannot trip on allocator noise.
     assert full > bounded * 50, f"bounded={bounded} full={full}"
 
 
@@ -410,8 +406,6 @@ def test_sort_with_limit_zero_yields_nothing():
 
 
 def test_numbers_sort_before_text_in_a_mixed_column():
-    # One defined answer for a column no single type can order: numbers first,
-    # then text, then missing.
     data = [{"v": v} for v in ("n/a", "10", None, "9", "abc")]
     out = [r["v"] for r in run(iter(data), Query(sort_by="v"))]
     assert out == ["9", "10", "abc", "n/a", None]
@@ -419,9 +413,6 @@ def test_numbers_sort_before_text_in_a_mixed_column():
 
 # ── real-world input: BOMs, encodings, oversized fields ──────────────────────
 def test_an_excel_byte_order_mark_does_not_rename_the_first_column(tmp_path):
-    # Excel writes a BOM on every CSV it exports. Read as plain UTF-8 it lands
-    # on the front of the first header name, and the column the user can see is
-    # then the one column they cannot query.
     f = tmp_path / "excel.csv"
     f.write_bytes("name,price\r\nwidget,10\r\n".encode("utf-8-sig"))
     assert main([str(f), "--where", "name = widget"]) == 0
@@ -451,16 +442,13 @@ def test_an_unknown_encoding_is_a_query_error_not_a_traceback(tmp_path, capsys):
 
 
 def test_a_field_larger_than_the_csv_default_limit_is_read(tmp_path):
-    # One base64 blob or embedded document in a cell passes the stdlib's 128 KB
-    # default, which exists to bound a runaway quote, not to reject real rows.
     f = tmp_path / "big.csv"
     f.write_text("a,b\n" + "x" * 200_000 + ",2\n", newline="")
     assert main([str(f), "--select", "b"]) == 0
 
 
 def test_a_csv_error_becomes_a_message_with_a_line_number():
-    # `_csv.Error` is not a ValueError, so before this it reached the user as a
-    # traceback. Squeezing the field limit is the cheapest way to provoke one.
+    # Squeezing the field limit is the cheapest way to provoke a _csv.Error.
     import csv as _csv
 
     previous = _csv.field_size_limit(10)
@@ -473,8 +461,6 @@ def test_a_csv_error_becomes_a_message_with_a_line_number():
 
 
 def test_the_raised_field_limit_is_still_a_limit():
-    # A limit that admits everything is not a limit; a runaway quote must still
-    # stop somewhere rather than pulling a whole file into one field.
     import csv as _csv
 
     from sift.io import MAX_FIELD_SIZE

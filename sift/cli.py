@@ -96,8 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"sift: {e}", file=sys.stderr)
         return 2
     except UnicodeDecodeError as e:
-        # The stdlib message names a byte and an offset and nothing a user can
-        # act on. The file and the flag that fixes it are the useful parts.
+        # The stdlib message names a byte and an offset and nothing actionable.
         where = args.file or "stdin"
         print(
             f"sift: {where} is not {e.encoding}: byte 0x{e.object[e.start]:02x} "

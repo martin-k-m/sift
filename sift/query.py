@@ -74,23 +74,14 @@ def coerce(value: Any) -> Any:
 def sort_key(value: Any) -> tuple[int, Any, str]:
     """A total order over one column's values that can never raise.
 
-    A CSV column is text until something reads it as a number, so one column can
-    hold `9`, `10` and `n/a` at once and no single Python type compares all
-    three. The key answers that by ranking the kinds first and only then the
-    values: numbers before text before missing. Within a kind the comparison is
-    the natural one, so a column that is entirely numeric sorts 9 before 10 and a
-    column that is entirely text sorts alphabetically, which is what a uniform
-    column looked like before this existed. The gain is that a mixed column now
-    has one defined answer reached in a single pass, instead of a failed numeric
-    sort followed by a second pass that compared everything as text.
+    No single Python type compares `9`, `10` and `n/a`, so rank the kinds first:
+    numbers, then text, then missing. Ranks never mix, so the remaining slots are
+    only ever compared against a value of the same kind.
     """
     if value is None:
         return (2, 0.0, "")
     v = coerce(value)
-    # Rank 0 holds int, float and bool, which compare against each other
-    # natively; the int is kept as an int so a 19-digit id is not rounded by a
-    # trip through float. Ranks never mix, so the second slot is only ever
-    # compared against another value of the same kind.
+    # Kept as an int, so a 19-digit id is not rounded by a trip through float.
     if isinstance(v, (int, float)):
         return (0, v, "")
     return (1, 0.0, str(v))
@@ -184,8 +175,6 @@ def run(rows: Iterable[Row], q: Query) -> Iterator[Row]:
 
         out = (project(r) for r in out)
 
-    limited = False
-
     if q.sort_by:
         key = q.sort_by
 
@@ -196,23 +185,16 @@ def run(rows: Iterable[Row], q: Query) -> Iterator[Row]:
                 raise QueryError(f"cannot sort on {key!r}: no such column") from None
 
         if q.limit is not None:
-            # `--sort --limit N` never needs the whole file. Only the best N
-            # rows seen so far can still be in the answer, so a bounded heap
-            # holds N rows instead of the input and the run costs O(N) memory
-            # rather than O(rows). `nsmallest`/`nlargest` are documented as
-            # equivalent to sorting and slicing, ties included, so the output is
-            # the same rows in the same order the full sort produced.
-            limited = True
-            if q.limit <= 0:
-                return
+            # A bounded heap of N rows instead of the file. nsmallest/nlargest
+            # are documented as equivalent to sorting and slicing, ties
+            # included, so the output matches the full sort. See
+            # benchmarks/RESULTS.md.
             pick = heapq.nlargest if q.descending else heapq.nsmallest
             out = pick(q.limit, out, key=row_key)
         else:
-            # Buffers, unavoidably: without a limit the last row read can still
-            # be the first row out, so the whole input has to be held.
+            # Buffers, unavoidably: the last row read can be the first row out.
             out = sorted(out, key=row_key, reverse=q.descending)
-
-    if q.limit is not None and not limited:
+    elif q.limit is not None:
         out = _take(out, q.limit)
 
     yield from out

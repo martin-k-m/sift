@@ -17,20 +17,13 @@ from typing import IO, Any
 
 Row = dict[str, Any]
 
-# The default of 128 KB is a guard against a runaway quote eating a whole file,
-# not a statement about legitimate data, and a single embedded document or
-# base64 blob in one cell passes it easily. Raised to 10 MB, which is past any
-# cell a person meant to write and still far short of letting one bad quote
-# swallow a large file. Not `sys.maxsize`: the limit is stored as a C long,
-# 32-bit on Windows, and a limit that admits everything is not a limit.
+# The stdlib default of 128 KB rejects real cells. Not sys.maxsize: the limit is
+# a C long, 32-bit on Windows, and it still has to stop a runaway quote.
 MAX_FIELD_SIZE = 10 * 1024 * 1024
 csv.field_size_limit(MAX_FIELD_SIZE)
 
-# `utf-8-sig` reads plain UTF-8 unchanged and additionally strips the byte order
-# mark that Excel writes on every CSV it exports. Without it the mark lands on
-# the front of the first header name, so `--where "name = x"` on an
-# Excel-exported file reports that there is no column `name` while showing what
-# looks like exactly that column back to the user.
+# Reads plain UTF-8 unchanged and strips Excel's byte order mark, which would
+# otherwise fuse onto the first header name and hide that column from queries.
 DEFAULT_ENCODING = "utf-8-sig"
 
 
@@ -58,11 +51,9 @@ def read(stream: IO[str], fmt: str) -> Iterator[Row]:
             except StopIteration:
                 return
             except csv.Error as e:
-                # `_csv.Error` is not a ValueError, so without this it escapes
-                # the CLI's handlers as a traceback. The line number is what
-                # makes the message actionable on a 2 GB file. `line_num` is
-                # the last line read in full, so the bad row starts on the next
-                # one; a quoted field spanning lines can run on from there.
+                # _csv.Error is not a ValueError, so the CLI would let it out as
+                # a traceback. line_num is the last full line, so the bad row
+                # starts on the next one.
                 raise ValueError(f"line {reader.line_num + 1}: {e}") from None
             yield row
     elif fmt in ("jsonl", "ndjson"):
@@ -120,11 +111,8 @@ def write(rows: Iterable[Row], out: IO[str], fmt: str) -> int:
 
 def open_input(path: str | None, encoding: str = DEFAULT_ENCODING) -> IO[str]:
     if path is None or path == "-":
-        # stdin arrives already decoded, with whatever the platform chose. Ask
-        # for the same encoding a file would get so `sift f.csv` and
-        # `cat f.csv | sift` do not disagree about what the bytes mean.
-        # A StringIO under test, or a stream already consumed, has nothing to
-        # reconfigure. Reading it as it stands is the right fallback.
+        # stdin arrives decoded by the platform's choice; match what a file
+        # would get. A StringIO under test has nothing to reconfigure.
         with contextlib.suppress(AttributeError, ValueError, OSError):
             sys.stdin.reconfigure(encoding=encoding, newline="")  # type: ignore[union-attr]
         return sys.stdin
