@@ -19,10 +19,12 @@ Row = dict[str, Any]
 
 # The default of 128 KB is a guard against a runaway quote eating a whole file,
 # not a statement about legitimate data, and a single embedded document or
-# base64 blob in one cell passes it easily. Raised to a value that still bounds
-# the damage but does not reject real rows. Not `sys.maxsize`: the limit is
-# stored as a C long, which is 32-bit on Windows and rejects anything larger.
-csv.field_size_limit(2**31 - 1)
+# base64 blob in one cell passes it easily. Raised to 10 MB, which is past any
+# cell a person meant to write and still far short of letting one bad quote
+# swallow a large file. Not `sys.maxsize`: the limit is stored as a C long,
+# 32-bit on Windows, and a limit that admits everything is not a limit.
+MAX_FIELD_SIZE = 10 * 1024 * 1024
+csv.field_size_limit(MAX_FIELD_SIZE)
 
 # `utf-8-sig` reads plain UTF-8 unchanged and additionally strips the byte order
 # mark that Excel writes on every CSV it exports. Without it the mark lands on

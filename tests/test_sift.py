@@ -472,6 +472,17 @@ def test_a_csv_error_becomes_a_message_with_a_line_number():
         _csv.field_size_limit(previous)
 
 
+def test_the_raised_field_limit_is_still_a_limit():
+    # A limit that admits everything is not a limit; a runaway quote must still
+    # stop somewhere rather than pulling a whole file into one field.
+    import csv as _csv
+
+    from sift.io import MAX_FIELD_SIZE
+
+    assert _csv.field_size_limit() == MAX_FIELD_SIZE
+    assert MAX_FIELD_SIZE < 2**31 - 1
+
+
 def test_embedded_newlines_and_quotes_survive_a_round_trip():
     src = 'name,note\n"a,b","line one\nline two"\n"q","say ""hi"""\n'
     got = list(read(_io.StringIO(src), "csv"))
