@@ -443,7 +443,9 @@ def test_an_unknown_encoding_is_a_query_error_not_a_traceback(tmp_path, capsys):
 
 def test_a_field_larger_than_the_csv_default_limit_is_read(tmp_path):
     f = tmp_path / "big.csv"
-    f.write_text("a,b\n" + "x" * 200_000 + ",2\n", newline="")
+    # Not write_text(newline=...): that keyword is 3.10 and later, and sift
+    # supports 3.9. write_bytes needs no newline translation to begin with.
+    f.write_bytes(("a,b\n" + "x" * 200_000 + ",2\n").encode())
     assert main([str(f), "--select", "b"]) == 0
 
 
