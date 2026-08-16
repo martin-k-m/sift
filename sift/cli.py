@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import __version__, io as sift_io
+from . import __version__
+from . import io as sift_io
 from .query import Query, QueryError, parse_aggregate, parse_condition, run
 
 EXAMPLES = """\
@@ -37,7 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="filter, repeatable; all must hold")
     p.add_argument("--sort", metavar="COL", help="sort by a column")
     p.add_argument("--desc", action="store_true", help="sort descending")
-    p.add_argument("--limit", "-n", type=int, metavar="N", help="stop after N rows")
+    p.add_argument("--limit", "-n", type=int, metavar="N",
+                   help="stop after N rows; with --sort, keep the top N without "
+                        "holding the file")
     p.add_argument("--agg", "-a", action="append", default=[], metavar="EXPR",
                    help="count(), sum/min/max/avg/median/distinct(col), pN(col); repeatable")
     p.add_argument("--group-by", "-g", metavar="COLS",
@@ -46,6 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="input format; inferred from the extension otherwise")
     p.add_argument("--to", dest="to_fmt", choices=["csv", "jsonl", "ndjson", "json"],
                    default="csv", help="output format (default: csv)")
+    p.add_argument("--encoding", metavar="ENC", default=sift_io.DEFAULT_ENCODING,
+                   help="input text encoding (default: %(default)s, which is UTF-8 "
+                        "with an Excel byte order mark tolerated)")
     p.add_argument("--version", action="version", version=f"sift {__version__}")
     return p
 
@@ -75,7 +81,10 @@ def main(argv: list[str] | None = None) -> int:
     fmt = sift_io.sniff(args.file, args.from_fmt)
 
     try:
-        stream = sift_io.open_input(args.file)
+        stream = sift_io.open_input(args.file, args.encoding)
+    except LookupError:
+        print(f"sift: unknown encoding {args.encoding!r}", file=sys.stderr)
+        return 2
     except OSError as e:
         print(f"sift: {e.strerror}: {args.file}", file=sys.stderr)
         return 1
@@ -86,6 +95,16 @@ def main(argv: list[str] | None = None) -> int:
     except QueryError as e:
         print(f"sift: {e}", file=sys.stderr)
         return 2
+    except UnicodeDecodeError as e:
+        # The stdlib message names a byte and an offset and nothing actionable.
+        where = args.file or "stdin"
+        print(
+            f"sift: {where} is not {e.encoding}: byte 0x{e.object[e.start]:02x} "
+            f"at position {e.start}. Try --encoding, for example "
+            f"--encoding cp1252 or --encoding latin-1.",
+            file=sys.stderr,
+        )
+        return 1
     except ValueError as e:
         print(f"sift: {e}", file=sys.stderr)
         return 1

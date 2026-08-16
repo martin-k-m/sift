@@ -32,3 +32,13 @@ sift = "sift.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sift"]
+
+[tool.ruff]
+# Pinned rather than inferred from requires-python. This is the line that makes
+# the 3.9 floor a checked fact instead of a claim in the metadata: pyupgrade
+# rules will not suggest 3.10+ syntax, and will flag it if someone writes it.
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

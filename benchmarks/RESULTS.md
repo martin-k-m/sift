@@ -27,10 +27,48 @@ machine-independent.
 | --- | ---: | ---: | ---: |
 | `--where + --select + --limit 10` | 500,000 | **0.15 MB** | 0.001 s |
 | `--where + --select + --limit 10` | 2,000,000 | **0.15 MB** | 0.001 s |
+| `--sort price --limit 10` † | 500,000 | **0.14 MB** | 3.9 s |
+| `--sort price --limit 10` † | 2,000,000 | **0.14 MB** | 19.8 s |
 | `--sort price` | 500,000 | 237 MB | 5.7 s |
 | `--sort price` | 2,000,000 | 949 MB | 27.7 s |
 | `--agg avg(price) -g category` | 500,000 | 192 MB | 4.9 s |
 | `--agg avg(price) -g category` | 2,000,000 | 768 MB | 21.9 s |
+
+† The two `--limit 10` sort rows were measured on a later, slower session than
+the rest of the table: the same harness reported 10.5 s and 76.5 s for the bare
+`--sort price` rows there, against the 5.7 s and 27.7 s recorded above. Compare
+their *memory* against the rest of the table freely, since that is
+machine-independent; for their *time*, use the same-session A/B below.
+
+## `--sort` with `--limit` does not hold the file
+
+A `--sort` has to buffer because the last row read can be the first row out.
+That stops being true the moment a `--limit N` is attached: only the best N rows
+seen so far can still appear in the answer, so the engine keeps a bounded heap of
+N rows instead of the input. Both variants were run back to back in one session,
+so these timings are comparable to each other:
+
+| Query | Rows | Peak memory | Time |
+| --- | ---: | ---: | ---: |
+| `--sort price --limit 10`, buffering the file | 500,000 | 236.90 MB | 7.90 s |
+| `--sort price --limit 10`, bounded heap | 500,000 | **0.14 MB** | **3.84 s** |
+| `--sort price --limit 10`, buffering the file | 2,000,000 | 949.26 MB | 42.87 s |
+| `--sort price --limit 10`, bounded heap | 2,000,000 | **0.14 MB** | **19.04 s** |
+
+Memory goes from linear in the input to flat: **0.14 MB at both 500k and 2M
+rows**, a 1,700× reduction at 500k and 6,800× at 2M. Time roughly halves as
+well, which is the same fact seen from the other side, since sorting N rows
+beats sorting the file and the discarded rows are never copied into a list.
+
+The bounded path is `heapq.nsmallest`/`nlargest`, documented as equivalent to
+sorting and slicing, ties included, so the rows and their order are identical to
+what the full sort produced. The test suite asserts that equivalence across
+several limits and both directions rather than taking it on trust, and asserts
+the memory gap directly with `tracemalloc`.
+
+A bare `--sort` with no `--limit` still buffers, and always will; nothing short
+of spilling to disk changes that, and it is not worth a temp file for a tool
+whose point is that it has no moving parts.
 
 ## Reading them
 

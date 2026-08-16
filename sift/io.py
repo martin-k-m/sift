@@ -8,12 +8,23 @@ reader loads the file.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import json
 import sys
-from typing import Any, IO, Iterable, Iterator
+from collections.abc import Iterable, Iterator
+from typing import IO, Any
 
 Row = dict[str, Any]
+
+# The stdlib default of 128 KB rejects real cells. Not sys.maxsize: the limit is
+# a C long, 32-bit on Windows, and it still has to stop a runaway quote.
+MAX_FIELD_SIZE = 10 * 1024 * 1024
+csv.field_size_limit(MAX_FIELD_SIZE)
+
+# Reads plain UTF-8 unchanged and strips Excel's byte order mark, which would
+# otherwise fuse onto the first header name and hide that column from queries.
+DEFAULT_ENCODING = "utf-8-sig"
 
 
 def sniff(path: str | None, explicit: str | None) -> str:
@@ -33,7 +44,18 @@ def read(stream: IO[str], fmt: str) -> Iterator[Row]:
     if fmt == "csv":
         # DictReader gives the header as keys and skips it as a row, which is
         # the behaviour every query here assumes.
-        yield from csv.DictReader(stream)
+        reader = csv.DictReader(stream)
+        while True:
+            try:
+                row = next(reader)
+            except StopIteration:
+                return
+            except csv.Error as e:
+                # _csv.Error is not a ValueError, so the CLI would let it out as
+                # a traceback. line_num is the last full line, so the bad row
+                # starts on the next one.
+                raise ValueError(f"line {reader.line_num + 1}: {e}") from None
+            yield row
     elif fmt in ("jsonl", "ndjson"):
         for n, line in enumerate(stream, 1):
             line = line.strip()
@@ -87,9 +109,13 @@ def write(rows: Iterable[Row], out: IO[str], fmt: str) -> int:
     return n
 
 
-def open_input(path: str | None) -> IO[str]:
+def open_input(path: str | None, encoding: str = DEFAULT_ENCODING) -> IO[str]:
     if path is None or path == "-":
+        # stdin arrives decoded by the platform's choice; match what a file
+        # would get. A StringIO under test has nothing to reconfigure.
+        with contextlib.suppress(AttributeError, ValueError, OSError):
+            sys.stdin.reconfigure(encoding=encoding, newline="")  # type: ignore[union-attr]
         return sys.stdin
     # newline="" is required by csv: it does its own line-ending handling, and
     # without it a file with \r\n produces a stray \r on every last field.
-    return open(path, newline="", encoding="utf-8")
+    return open(path, newline="", encoding=encoding)

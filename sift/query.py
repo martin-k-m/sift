@@ -15,10 +15,12 @@ buffering, and they are the only places memory grows with input size.
 
 from __future__ import annotations
 
+import heapq
 import operator
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable
 
 from . import aggregate
 
@@ -67,6 +69,22 @@ def coerce(value: Any) -> Any:
         return float(s)
     except ValueError:
         return value
+
+
+def sort_key(value: Any) -> tuple[int, Any, str]:
+    """A total order over one column's values that can never raise.
+
+    No single Python type compares `9`, `10` and `n/a`, so rank the kinds first:
+    numbers, then text, then missing. Ranks never mix, so the remaining slots are
+    only ever compared against a value of the same kind.
+    """
+    if value is None:
+        return (2, 0.0, "")
+    v = coerce(value)
+    # Kept as an int, so a 19-digit id is not rounded by a trip through float.
+    if isinstance(v, (int, float)):
+        return (0, v, "")
+    return (1, 0.0, str(v))
 
 
 @dataclass
@@ -159,22 +177,24 @@ def run(rows: Iterable[Row], q: Query) -> Iterator[Row]:
 
     if q.sort_by:
         key = q.sort_by
-        # Buffers, unavoidably: the last row read can be the first row out.
-        # Materialize once up front: the mixed-type fallback below sorts the
-        # same rows a second time, and re-reading a generator would find it
-        # already emptied by the first attempt.
-        buffered = list(out)
-        # Sorting on the coerced value so 9 lands before 10.
-        try:
-            out = sorted(buffered, key=lambda r: (r[key] is None, coerce(r[key])), reverse=q.descending)
-        except KeyError:
-            raise QueryError(f"cannot sort on {key!r}: no such column") from None
-        except TypeError:
-            # Mixed types in one column have no total order. Comparing as text
-            # is at least deterministic, and the alternative is refusing to run.
-            out = sorted(buffered, key=lambda r: str(r[key]), reverse=q.descending)
 
-    if q.limit is not None:
+        def row_key(r: Row) -> tuple[int, Any, str]:
+            try:
+                return sort_key(r[key])
+            except KeyError:
+                raise QueryError(f"cannot sort on {key!r}: no such column") from None
+
+        if q.limit is not None:
+            # A bounded heap of N rows instead of the file. nsmallest/nlargest
+            # are documented as equivalent to sorting and slicing, ties
+            # included, so the output matches the full sort. See
+            # benchmarks/RESULTS.md.
+            pick = heapq.nlargest if q.descending else heapq.nsmallest
+            out = pick(q.limit, out, key=row_key)
+        else:
+            # Buffers, unavoidably: the last row read can be the first row out.
+            out = sorted(out, key=row_key, reverse=q.descending)
+    elif q.limit is not None:
         out = _take(out, q.limit)
 
     yield from out
