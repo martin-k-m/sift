@@ -8,6 +8,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.3.0] - 2026-08-21
 
+Tagged, built and tested, but not published. `sift-query` is not on PyPI: the
+release stops at the upload because no trusted publisher is registered for this
+repository, and the tag can be re-run once one is. Install from the repository
+in the meantime, as the README says.
+
 ### Changed
 - `--sort` combined with `--limit N` no longer buffers the input. Only the best
   N rows seen so far can still be in the answer, so the engine keeps a bounded
