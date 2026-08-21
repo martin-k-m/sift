@@ -1,15 +1,20 @@
 # sift
 
 [![CI](https://github.com/martin-k-m/sift/actions/workflows/ci.yml/badge.svg)](https://github.com/martin-k-m/sift/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/sift-query.svg)](https://pypi.org/project/sift-query/)
-[![Python](https://img.shields.io/pypi/pyversions/sift-query.svg)](https://pypi.org/project/sift-query/)
+[![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Query CSV and JSONL from the terminal. Streaming, zero dependencies, pure stdlib.
 
+Not on PyPI yet. Install from the repository:
+
 ```bash
-pip install sift-query
+pip install git+https://github.com/martin-k-m/sift
 ```
+
+The distribution will be `sift-query` when it is published, because `sift` is
+taken. The command, the import and the repository stay `sift`; only the string
+after `pip install` will differ.
 
 ```bash
 sift sales.csv --where "price > 100" --select name,price --sort price --desc
