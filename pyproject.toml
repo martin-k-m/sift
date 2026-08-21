@@ -6,7 +6,10 @@ build-backend = "hatchling.build"
 # `sift` is taken on PyPI, so the distribution is sift-query. The command, the
 # import and the repository all stay `sift`; only the pip install line differs.
 name = "sift-query"
-version = "0.2.0"
+# Read from sift/__init__.py, so the version the CLI prints and the version on
+# the distribution cannot drift apart. They already had: the package said 0.2.0
+# while `sift --version` was about to ship saying something else.
+dynamic = ["version"]
 description = "Query CSV and JSONL from the terminal with a tiny SQL-like language. Streaming, zero dependencies."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,6 +32,9 @@ Repository = "https://github.com/martin-k-m/sift"
 
 [project.scripts]
 sift = "sift.cli:main"
+
+[tool.hatch.version]
+path = "sift/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sift"]

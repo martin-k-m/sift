@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-21
+
 ### Changed
 - `--sort` combined with `--limit N` no longer buffers the input. Only the best
   N rows seen so far can still be in the answer, so the engine keeps a bounded
@@ -70,6 +72,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   single aggregation form, over CSV, JSONL, and JSON, all streaming where the
   clause allows. MIT licensed.
 
-[Unreleased]: https://github.com/martin-k-m/sift/compare/main...HEAD
+[Unreleased]: https://github.com/martin-k-m/sift/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/martin-k-m/sift/releases/tag/v0.3.0
 [0.2.0]: https://github.com/martin-k-m/sift/releases/tag/v0.2.0
 [0.1.0]: https://github.com/martin-k-m/sift/releases/tag/v0.1.0
