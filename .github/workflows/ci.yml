@@ -21,7 +21,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install pytest
+      # One list, in pyproject.toml's dev group, rather than a tool named here
+      # and again there. `--group` needs pip 25.1, hence the upgrade.
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --group dev
       - run: python -m pytest tests -q
 
   lint:
@@ -31,7 +34,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - run: pip install ruff
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --group dev
       # `target-version = "py39"` in pyproject.toml is what makes this a real
       # check of the support floor and not just a style pass: ruff refuses to
       # suggest 3.10+ syntax and flags it if it appears.
