@@ -20,7 +20,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install --upgrade build twine pytest
+      - run: pip install --upgrade pip build twine
+      - run: python -m pip install --group dev
       - run: python -m build
 
       # Catches a malformed README or missing metadata, which PyPI rejects at

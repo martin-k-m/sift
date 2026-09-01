@@ -5,13 +5,21 @@ is that it keeps the tool small and keeps the promises in the README.
 
 ## Setup
 
-No dependencies to run; `pytest` to test.
+No dependencies to run. The test and lint tools are the `dev` group in
+`pyproject.toml`, which is the one list CI installs from too.
 
 ```bash
 git clone https://github.com/martin-k-m/sift
 cd sift
+uv sync --group dev
+uv run pytest -q
+```
+
+or with pip, which needs 25.1 or newer for `--group`:
+
+```bash
 pip install -e .
-pip install pytest
+python -m pip install --group dev
 python -m pytest -q
 ```
 
