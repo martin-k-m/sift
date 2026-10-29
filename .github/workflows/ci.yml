@@ -15,7 +15,7 @@ jobs:
         # claims 3.9 support and nothing else here would catch a 3.10-only
         # syntax slipping in.
         os: [ubuntu-latest, windows-latest]
-        python: ["3.9", "3.13"]
+        python: ["3.9", "3.15"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
