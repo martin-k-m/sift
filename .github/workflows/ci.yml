@@ -16,6 +16,14 @@ jobs:
         # syntax slipping in.
         os: [ubuntu-latest, windows-latest]
         python: ["3.9", "3.15"]
+        # ubuntu-latest is 26.04, which actions/python-versions has no 3.9
+        # build for, so the floor runs on 24.04 there.
+        exclude:
+          - os: ubuntu-latest
+            python: "3.9"
+        include:
+          - os: ubuntu-24.04
+            python: "3.9"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
